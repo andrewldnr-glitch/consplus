@@ -1,4 +1,4 @@
-/* Generated from your photos. You can edit safely. */
+/* CONTENT (v4) */
 const CONTENT = {
   "meta": {
     "title": "Шпаргалка: КонсультантПлюс",
