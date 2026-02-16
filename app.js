@@ -210,7 +210,7 @@
     const pkg = getPkg(pkgId);
     if(!pkg) return;
     // Prefer base/optimal if exists
-    const preferred = ['base','optimal','prof','expert'];
+    const preferred = ['base','nb_base','optimal','prof','expert'];
     const v = preferred.map(id => getVariant(pkg,id)).find(Boolean) || pkg.variants?.[0];
     if(v) location.hash = `#/pkg/${pkgId}/${v.id}`;
   }
