@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Шпаргалка — КонсультантПлюс</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">КП</div>
+        <div class="brand-text">
+          <div class="title">Шпаргалка</div>
+          <div class="subtitle">КонсультантПлюс</div>
+        </div>
+      </div>
+
+      <div class="search">
+        <input id="searchInput" type="search" placeholder="Поиск по банкам (например: «закупок», «ФАС»)" />
+        <div class="hint">Совет: в Телеграме удобнее искать по ключевым словам.</div>
+      </div>
+
+      <nav id="nav" class="nav"></nav>
+
+      <div class="footer">
+        <div class="chip chip--focus">Фокус: Базовый / Оптимальный</div>
+        <div class="muted">GitHub Pages · офлайн-статический сайт</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="breadcrumbs" id="breadcrumbs"></div>
+        <div class="top-actions">
+          <button class="btn" id="copyLinkBtn" title="Скопировать ссылку на текущий раздел">Скопировать ссылку</button>
+        </div>
+      </header>
+
+      <article class="content" id="content"></article>
+    </main>
+  </div>
+
+  <script src="data/content.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
