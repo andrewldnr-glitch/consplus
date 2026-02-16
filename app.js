@@ -1,256 +1,482 @@
 /* global CONTENT */
-(function(){
-  const $ = (sel) => document.querySelector(sel);
+(() => {
+  const $ = (s, el=document) => el.querySelector(s);
+  const $$ = (s, el=document) => Array.from(el.querySelectorAll(s));
 
-  const navEl = $('#nav');
-  const contentEl = $('#content');
-  const bcEl = $('#breadcrumbs');
-  const searchInput = $('#searchInput');
-  const copyLinkBtn = $('#copyLinkBtn');
+  const stage = $('#stage');
+  const backBtn = $('#backBtn');
+  const shareBtn = $('#shareBtn');
+  const titleTop = $('#titleTop');
+  const titleSub = $('#titleSub');
 
-  const state = {
-    q: '',
-    route: parseHash(),
-  };
-
-  function parseHash(){
-    // #/pkg/<id>/<variant>
-    const h = (location.hash || '#/').replace(/^#/, '');
-    const parts = h.split('/').filter(Boolean);
-    if(parts.length >= 3 && parts[0] === 'pkg'){
-      return { page:'pkg', pkgId: parts[1], variantId: parts[2] };
-    }
-    if(parts.length >= 1 && parts[0] === 'glossary') return { page:'glossary' };
-    return { page:'home' };
+  function esc(str){
+    return String(str ?? '').replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;'
+    }[c]));
   }
-
-  function setHash(route){
-    if(route.page === 'pkg') location.hash = `#/pkg/${route.pkgId}/${route.variantId}`;
-    else if(route.page === 'glossary') location.hash = '#/glossary';
-    else location.hash = '#/';
-  }
-
-  function esc(s){
-    return String(s).replace(/[&<>"']/g, (c)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-  }
-
   function norm(s){
     return String(s || '').toLowerCase().replace(/ё/g,'е');
   }
 
-  function renderNav(){
-    navEl.innerHTML = '';
-    const pkgList = CONTENT.packages || [];
-
-    // Home + glossary
-    const top = document.createElement('div');
-    top.className = 'nav-section';
-    top.innerHTML = `
-      <div class="nav-head" data-open="1">
-        <div>
-          <div class="nav-title">Разделы</div>
-          <div class="nav-sub">Быстрый доступ</div>
-        </div>
-      </div>
-      <div class="nav-body">
-        <a class="nav-link" href="#/">🏠 Главная <span class="badges"></span></a>
-        <a class="nav-link" href="#/glossary">📚 Словарь терминов <span class="badges"></span></a>
-      </div>
-    `;
-    navEl.appendChild(top);
-
-    for(const pkg of pkgList){
-      const sec = document.createElement('div');
-      sec.className = 'nav-section';
-
-      const variants = (pkg.variants || []).slice().sort((a,b)=>{
-        // put high priority first
-        const pa = a.priority === 'high' ? 0 : 1;
-        const pb = b.priority === 'high' ? 0 : 1;
-        return pa - pb;
-      });
-
-      const bodyLinks = variants.map(v=>{
-        const badges = [];
-        if(v.priority === 'high') badges.push('<span class="badge badge--high">Фокус</span>');
-        if(v.notes) badges.push('<span class="badge badge--note">примеч.</span>');
-        const active = (state.route.page==='pkg' && state.route.pkgId===pkg.id && state.route.variantId===v.id) ? 'active' : '';
-        return `<a class="nav-link ${active}" href="#/pkg/${pkg.id}/${v.id}">
-          <span>${esc(v.name)}</span>
-          <span class="badges">${badges.join('')}</span>
-        </a>`;
-      }).join('');
-
-      sec.innerHTML = `
-        <div class="nav-head" data-open="1">
-          <div>
-            <div class="nav-title">${esc(pkg.name)}</div>
-            <div class="nav-sub">${esc(pkg.audience || '')}</div>
-          </div>
-        </div>
-        <div class="nav-body">${bodyLinks}</div>
-      `;
-      navEl.appendChild(sec);
-    }
-
-    // search filtering
-    applySearchFilter();
+  // --- Router ---
+  function parseRoute(){
+    const raw = (location.hash || '#/home').replace(/^#/, '');
+    const parts = raw.split('/').filter(Boolean);
+    const page = parts[0] || 'home';
+    if(page === 'pkg') return {page:'pkg', pkgId: parts[1], variantId: parts[2]};
+    return {page};
   }
 
-  function applySearchFilter(){
-    const q = norm(state.q).trim();
-    const links = navEl.querySelectorAll('.nav-link');
-    if(!q){
-      links.forEach(a=>a.style.display = '');
-      return;
+  function setActiveTab(route){
+    const tab = route.page === 'pkg' ? 'home' : route.page;
+    $$('.tab').forEach(a => a.classList.toggle('active', a.dataset.tab === tab));
+  }
+
+  function setHeader(route, payload={}){
+    if(route.page === 'home'){
+      titleTop.textContent = 'Шпаргалка';
+      titleSub.textContent = 'КонсультантПлюс';
+    }else if(route.page === 'search'){
+      titleTop.textContent = 'Поиск';
+      titleSub.textContent = 'по банкам и пакетам';
+    }else if(route.page === 'focus'){
+      titleTop.textContent = 'Фокус';
+      titleSub.textContent = 'Базовый и Оптимальный';
+    }else if(route.page === 'glossary'){
+      titleTop.textContent = 'Словарь';
+      titleSub.textContent = 'краткие термины';
+    }else if(route.page === 'pkg'){
+      titleTop.textContent = payload.titleTop || 'Комплект';
+      titleSub.textContent = payload.titleSub || '';
+    }else{
+      titleTop.textContent = 'Шпаргалка';
+      titleSub.textContent = 'КонсультантПлюс';
     }
-    links.forEach(a=>{
-      const href = a.getAttribute('href') || '';
-      // keep home/glossary visible
-      if(href === '#/' || href === '#/glossary'){ a.style.display=''; return; }
-      // pkg link: look into its content
-      const m = href.match(/#\/pkg\/([^\/]+)\/([^\/]+)/);
-      if(!m){ a.style.display=''; return; }
-      const pkgId = m[1], variantId = m[2];
-      const pkg = (CONTENT.packages||[]).find(p=>p.id===pkgId);
-      const v = pkg && (pkg.variants||[]).find(x=>x.id===variantId);
-      const hay = norm([
-        pkg?.name, pkg?.audience, v?.name,
-        ...(v?.what_includes||[])
-      ].join('\n'));
-      a.style.display = hay.includes(q) ? '' : 'none';
+  }
+
+  function canGoBack(){
+    // if user opened a pkg, back should go to home/focus/search
+    const route = parseRoute();
+    return route.page === 'pkg';
+  }
+
+  backBtn.addEventListener('click', () => {
+    if(canGoBack()) location.hash = '#/home';
+  });
+
+  shareBtn.addEventListener('click', async () => {
+    try{
+      await navigator.clipboard.writeText(location.href);
+      const old = shareBtn.innerHTML;
+      shareBtn.innerHTML = '<span class="ic">✓</span>';
+      setTimeout(()=> shareBtn.innerHTML = old, 900);
+    }catch(e){
+      alert('В этом режиме не удалось скопировать ссылку. Можно скопировать вручную из адресной строки.');
+    }
+  });
+
+  // --- Data helpers ---
+  const PKGS = CONTENT.packages || [];
+
+  function getPkg(id){ return PKGS.find(p => p.id === id); }
+  function getVariant(pkg, vid){ return (pkg?.variants || []).find(v => v.id === vid); }
+
+  // Simple grouping heuristic (keywords)
+  const GROUPS = [
+    { id:'law', title:'Законодательство', match: [/законодательств/i, /законопроект/i, /проект.*норматив/i, /международн/i, /документ.*ссср/i] },
+    { id:'practice', title:'Судебная практика', match: [/судебн/i, /арбитраж/i, /кассац/i, /апелляц/i, /суд по интеллект/i, /супермассив/i, /правовые позиции/i, /подборки судебн/i] },
+    { id:'guides', title:'Путеводители', match: [/путеводител/i] },
+    { id:'letters', title:'Разъяснения и консультации', match: [/разъясня/i, /вопросы-ответы/i, /горячей линии/i, /корреспонденц/i] },
+    { id:'forms', title:'Формы и договоры', match: [/деловые бумаги/i, /дополнительные формы/i, /конструктор договор/i] },
+    { id:'archives', title:'Архивы', match: [/архив/i, /фас/i, /уфас/i] },
+    { id:'press', title:'Пресса и комментарии', match: [/пресса/i, /комментар/i, /книг/i] },
+    { id:'industry', title:'Отраслевое', match: [/здравоохран/i, /медицина/i, /фармац/i, /отраслевые технические нормы/i, /эксперт-прилож/i, /бюджетн/i] },
+  ];
+
+  function groupItems(items){
+    const out = new Map();
+    for(const g of GROUPS) out.set(g.id, []);
+    out.set('other', []);
+
+    for(const it of items){
+      const s = String(it);
+      let placed = false;
+      for(const g of GROUPS){
+        if(g.match.some(rx => rx.test(s))){
+          out.get(g.id).push(s);
+          placed = true;
+          break;
+        }
+      }
+      if(!placed) out.get('other').push(s);
+    }
+
+    const groups = [];
+    for(const g of GROUPS){
+      const arr = out.get(g.id);
+      if(arr && arr.length) groups.push({id:g.id, title:g.title, items:arr});
+    }
+    const other = out.get('other');
+    if(other && other.length) groups.push({id:'other', title:'Прочее', items:other});
+    return groups;
+  }
+
+  // --- Rendering ---
+  function mount(html){
+    stage.innerHTML = html;
+    const page = $('.page', stage);
+    if(page) page.classList.add('enter');
+  }
+
+  function pkgCard(pkg){
+    const variants = (pkg.variants || []).slice().sort((a,b)=>{
+      const pa = a.priority === 'high' ? 0 : 1;
+      const pb = b.priority === 'high' ? 0 : 1;
+      return pa - pb;
     });
+    const focusCount = variants.filter(v => v.priority === 'high').length;
+    const totalCount = variants.length;
+
+    return `
+      <div class="card" role="button" tabindex="0" data-open-pkg="${esc(pkg.id)}">
+        <div class="card__top">
+          <div>
+            <div class="card__title">${esc(pkg.name)}</div>
+            <div class="card__sub">${esc(pkg.audience || '')}</div>
+          </div>
+          <div class="badges">
+            ${focusCount ? `<span class="badge focus">Фокус</span>` : ''}
+            <span class="badge">${totalCount} уровн.</span>
+          </div>
+        </div>
+        <div style="margin-top:10px" class="p">
+          Быстрый вход: <span class="kbd">Базовый</span> / <span class="kbd">Оптимальный</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function variantCard(pkg, v){
+    const badges = `
+      ${v.priority === 'high' ? `<span class="badge focus">Фокус</span>` : ''}
+      ${v.notes ? `<span class="badge note">примеч.</span>` : ''}
+    `;
+    const count = (v.what_includes || []).length;
+    return `
+      <div class="card" role="button" tabindex="0" data-open-variant="${esc(pkg.id)}::${esc(v.id)}">
+        <div class="card__top">
+          <div>
+            <div class="card__title">${esc(v.name)}</div>
+            <div class="card__sub">${esc(pkg.name)}</div>
+          </div>
+          <div class="badges">${badges}</div>
+        </div>
+        <div class="p" style="margin-top:10px">${count} позиций «что входит»</div>
+      </div>
+    `;
   }
 
   function renderHome(){
+    setHeader({page:'home'});
     const meta = CONTENT.meta || {};
-    bcEl.textContent = 'Главная';
-    contentEl.innerHTML = `
-      <h1>${esc(meta.title || 'Шпаргалка')}</h1>
-      <p class="small">${esc(meta.subtitle || '')}</p>
-      <div class="callout">
-        <strong>Фокус изучения:</strong> ${esc(meta.focus_note || '')}
-      </div>
+    const cards = PKGS.map(pkgCard).join('');
+    mount(`
+      <section class="page">
+        <div class="h1">${esc(meta.title || 'Шпаргалка')}</div>
+        <div class="p">${esc(meta.focus_note || '')}</div>
 
-      <h2>Как устроены таблицы (что ты прислал)</h2>
-      <ul>
-        <li><strong>Строка слева</strong> — название пакета (например: «Юрист», «Бюджетные организации») и версия (Базовый / Оптимальный / Проф / Эксперт).</li>
-        <li><strong>Большой список справа</strong> — какие <em>информационные банки</em> входят в этот комплект.</li>
-        <li><strong>Различия между таблицами</strong> — это разная целевая аудитория и разная «глубина» наполнения:
-          <ul>
-            <li><strong>Базовый</strong> — обычно более короткий состав, часто с пометками «базовая версия» и «усеченный».</li>
-            <li><strong>Оптимальный</strong> — как правило расширенная версия законодательства и больше блоков практики/архивов/путеводителей.</li>
-            <li><strong>Проф / Эксперт</strong> — ещё шире (у тебя на листах они встречаются, но сейчас мы их не делаем фокусом).</li>
-          </ul>
-        </li>
-      </ul>
+        <div class="callout">
+          <div style="font-weight:900; margin-bottom:6px">Как пользоваться</div>
+          <div class="p" style="margin:0">
+            Выбирай направление → уровень комплекта → смотри состав по группам. Для быстрого поиска используй вкладку <span class="kbd">Поиск</span>.
+          </div>
+        </div>
 
-      <h2>Как пользоваться сайтом</h2>
-      <ul>
-        <li>Открой нужный комплект слева.</li>
-        <li>Вверху есть поиск — вводи слово, например <span class="kbd">ФАС</span>, <span class="kbd">закупок</span>, <span class="kbd">путеводитель</span>.</li>
-        <li>Ссылку на конкретный раздел можно скопировать кнопкой сверху.</li>
-      </ul>
+        <div class="grid">
+          ${cards}
+        </div>
+      </section>
+    `);
 
-      <hr />
-      <p class="small">Дальше можно постепенно добавлять: «как искать», «типовые сценарии», «шорткаты», «любимые фильтры» — и всё это будет жить в репозитории.</p>
-    `;
+    // interactions
+    $$('[data-open-pkg]').forEach(el => {
+      const id = el.dataset.openPkg;
+      el.addEventListener('click', () => openPkgBest(id));
+      el.addEventListener('keypress', (e)=>{ if(e.key==='Enter') openPkgBest(id); });
+    });
+  }
+
+  function openPkgBest(pkgId){
+    const pkg = getPkg(pkgId);
+    if(!pkg) return;
+    // Prefer base/optimal if exists
+    const preferred = ['base','optimal','prof','expert'];
+    const v = preferred.map(id => getVariant(pkg,id)).find(Boolean) || pkg.variants?.[0];
+    if(v) location.hash = `#/pkg/${pkgId}/${v.id}`;
+  }
+
+  function renderFocus(){
+    setHeader({page:'focus'});
+    const focusVariants = [];
+    for(const pkg of PKGS){
+      for(const v of (pkg.variants||[])){
+        if(v.priority === 'high') focusVariants.push({pkg, v});
+      }
+    }
+    const cards = focusVariants.map(({pkg,v}) => variantCard(pkg,v)).join('');
+    mount(`
+      <section class="page">
+        <div class="h1">Фокус изучения</div>
+        <div class="p">Собрал все комплекты, помеченные как приоритетные (Базовый и Оптимальный).</div>
+        <div class="grid">${cards}</div>
+      </section>
+    `);
+    $$('[data-open-variant]').forEach(el => {
+      const [pid, vid] = el.dataset.openVariant.split('::');
+      el.addEventListener('click', () => location.hash = `#/pkg/${pid}/${vid}`);
+      el.addEventListener('keypress', (e)=>{ if(e.key==='Enter') location.hash = `#/pkg/${pid}/${vid}`; });
+    });
   }
 
   function renderGlossary(){
-    bcEl.textContent = 'Словарь терминов';
-    const items = (CONTENT.glossary || []).map(x=>`
-      <h3>${esc(x.term)}</h3>
-      <p>${esc(x.desc)}</p>
+    setHeader({page:'glossary'});
+    const items = (CONTENT.glossary || []).map(x => `
+      <div class="item">
+        <div class="dot"></div>
+        <div class="item__txt">
+          <div class="item__name">${esc(x.term)}</div>
+          <div class="item__desc">${esc(x.desc)}</div>
+        </div>
+      </div>
     `).join('');
-    contentEl.innerHTML = `
-      <h1>Словарь</h1>
-      <p class="small">Короткие пояснения к терминам, которые постоянно встречаются в пакетах.</p>
-      ${items || '<p>Пока пусто.</p>'}
-    `;
+    mount(`
+      <section class="page">
+        <div class="h1">Словарь</div>
+        <div class="p">Короткие пояснения к словам, которые постоянно встречаются в пакетах.</div>
+        ${items || '<div class="p">Пока пусто.</div>'}
+      </section>
+    `);
   }
 
-  function renderPackage(pkgId, variantId){
-    const pkg = (CONTENT.packages||[]).find(p=>p.id===pkgId);
-    const variant = pkg?.variants?.find(v=>v.id===variantId);
+  function renderSearch(){
+    setHeader({page:'search'});
+    mount(`
+      <section class="page">
+        <div class="h1">Поиск</div>
+        <div class="p">Ищи по ключевым словам: <span class="kbd">ФАС</span>, <span class="kbd">закупок</span>, <span class="kbd">путеводитель</span>, <span class="kbd">архив</span>…</div>
+        <div class="searchbar">
+          <span class="kbd">⌕</span>
+          <input id="q" type="search" placeholder="Например: налогам, закупок, ФАС, суд..." autocomplete="off" />
+          <span class="kbd" id="cnt">0</span>
+        </div>
+        <div style="margin-top:12px" id="results"></div>
+      </section>
+    `);
 
-    if(!pkg || !variant){
-      bcEl.textContent = 'Раздел не найден';
-      contentEl.innerHTML = `
-        <h1>Раздел не найден</h1>
-        <p>Похоже, ссылка устарела. Открой раздел слева.</p>
-      `;
+    const q = $('#q');
+    const results = $('#results');
+    const cnt = $('#cnt');
+
+    const index = [];
+    for(const pkg of PKGS){
+      for(const v of (pkg.variants||[])){
+        for(const it of (v.what_includes||[])){
+          index.push({
+            pkgId: pkg.id,
+            pkgName: pkg.name,
+            variantId: v.id,
+            variantName: v.name,
+            text: it,
+            hay: norm(`${pkg.name}\n${v.name}\n${it}`)
+          });
+        }
+      }
+    }
+
+    function renderRes(list){
+      cnt.textContent = String(list.length);
+      if(!list.length){
+        results.innerHTML = `<div class="p">Ничего не найдено. Попробуй другое слово.</div>`;
+        return;
+      }
+      const top = list.slice(0, 40).map(x => `
+        <div class="card" data-open-variant="${esc(x.pkgId)}::${esc(x.variantId)}" style="margin-top:10px">
+          <div class="card__top">
+            <div>
+              <div class="card__title">${esc(x.text)}</div>
+              <div class="card__sub">${esc(x.pkgName)} → ${esc(x.variantName)}</div>
+            </div>
+            <div class="badges">
+              ${x.variantId === 'base' || x.variantId === 'optimal' ? '<span class="badge focus">Фокус</span>' : ''}
+            </div>
+          </div>
+        </div>
+      `).join('');
+      results.innerHTML = top + (list.length > 40 ? `<div class="p" style="margin-top:10px">Показаны первые 40 результатов.</div>` : '');
+      $$('[data-open-variant]', results).forEach(el => {
+        const [pid, vid] = el.dataset.openVariant.split('::');
+        el.addEventListener('click', () => location.hash = `#/pkg/${pid}/${vid}`);
+      });
+    }
+
+    function score(x){
+      // prioritize focus packs lightly
+      let s = 0;
+      if(x.variantId === 'base' || x.variantId === 'optimal') s -= 2;
+      return s;
+    }
+
+    q.addEventListener('input', () => {
+      const qq = norm(q.value).trim();
+      if(!qq){ renderRes([]); return; }
+      const list = index.filter(x => x.hay.includes(qq)).sort((a,b)=>score(a)-score(b));
+      renderRes(list);
+    });
+
+    q.focus();
+  }
+
+  function renderPkg(pkgId, variantId){
+    const pkg = getPkg(pkgId);
+    const v = pkg ? getVariant(pkg, variantId) : null;
+    if(!pkg || !v){
+      setHeader({page:'pkg'}, {titleTop:'Не найдено', titleSub:''});
+      mount(`
+        <section class="page">
+          <div class="h1">Раздел не найден</div>
+          <div class="p">Открой другой раздел с главной.</div>
+        </section>
+      `);
       return;
     }
 
-    bcEl.textContent = `${pkg.name} → ${variant.name}`;
+    setHeader({page:'pkg'}, {titleTop: pkg.name, titleSub: v.name});
+    setActiveTab({page:'home'});
 
-    const priorityBadge = variant.priority === 'high'
-      ? '<span class="badge badge--high">Фокус (учить в первую очередь)</span>'
-      : '';
+    const variants = (pkg.variants || []).slice().sort((a,b)=>{
+      const pa = a.priority === 'high' ? 0 : 1;
+      const pb = b.priority === 'high' ? 0 : 1;
+      return pa - pb;
+    });
 
-    const notes = variant.notes
-      ? `<div class="callout warn"><strong>Примечание:</strong> ${esc(variant.notes)}</div>`
-      : '';
+    const tabs = variants.map(x => `
+      <button class="${x.id === v.id ? 'active' : ''}" data-tabv="${esc(x.id)}">${esc(x.name.replace('Смарт-комплект ', ''))}</button>
+    `).join('');
 
-    const list = (variant.what_includes || []).map(x=>`<li>${esc(x)}</li>`).join('');
-
-    contentEl.innerHTML = `
-      <h1>${esc(pkg.name)}</h1>
-      <p class="small">${esc(pkg.audience || '')}</p>
-
-      <div class="callout">
-        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-          <strong>${esc(variant.name)}</strong>
-          ${priorityBadge}
+    const grouped = groupItems(v.what_includes || []);
+    const blocks = grouped.map(g => {
+      const inner = g.items.map(it => `
+        <div class="item">
+          <div class="dot"></div>
+          <div class="item__txt">
+            <div class="item__name">${esc(it)}</div>
+            <div class="item__desc">${shortExplain(it)}</div>
+          </div>
         </div>
-        <p class="small" style="margin-top:8px">Ниже — <em>что входит</em> (по твоим фото). Дальше можно дополнять «как использовать» и «когда полезно».</p>
-      </div>
+      `).join('');
+      return `
+        <div class="block" data-block="${esc(g.id)}">
+          <div class="block__head">
+            <div>
+              <div class="block__ttl">${esc(g.title)}</div>
+              <div class="block__meta">${g.items.length} позиц.</div>
+            </div>
+            <div class="kbd">⌄</div>
+          </div>
+          <div class="block__body">${inner}</div>
+        </div>
+      `;
+    }).join('');
 
-      ${notes}
+    const focusBadge = (v.priority === 'high') ? `<span class="badge focus">Фокус</span>` : '';
+    const note = v.notes ? `<div class="callout warn"><div style="font-weight:900;margin-bottom:6px">Примечание</div><div class="p" style="margin:0">${esc(v.notes)}</div></div>` : '';
 
-      <h2>Что входит</h2>
-      <ul>${list}</ul>
+    mount(`
+      <section class="page">
+        <div class="card" style="padding:14px; margin-bottom:12px">
+          <div class="card__top">
+            <div>
+              <div class="card__title">${esc(pkg.name)}</div>
+              <div class="card__sub">${esc(pkg.audience || '')}</div>
+            </div>
+            <div class="badges">${focusBadge}</div>
+          </div>
+          <div style="margin-top:12px" class="seg" aria-label="Уровни комплекта">
+            ${tabs}
+          </div>
+        </div>
 
-      <h2>Короткое пояснение к типам материалов</h2>
-      <ul>
-        <li><strong>Законодательство</strong> — нормативные акты (в базовой/расширенной версии).</li>
-        <li><strong>Судебная практика</strong> — решения/определения судов, иногда в виде «супермассива».</li>
-        <li><strong>Разъясняющие письма</strong> — письма/позиции органов власти по применению норм.</li>
-        <li><strong>Путеводители</strong> — «как сделать» по типовым задачам (налоги, кадры, закупки, договоры и т.д.).</li>
-        <li><strong>Архивы</strong> — исторические массивы решений/документов.</li>
-      </ul>
-    `;
+        ${note}
+
+        ${blocks}
+
+        <div class="callout" style="margin-top:12px">
+          <div style="font-weight:900; margin-bottom:6px">Подсказка</div>
+          <div class="p" style="margin:0">В Telegram удобнее пользоваться вкладкой <span class="kbd">Поиск</span> и искать по словам (например: <span class="kbd">ФАС</span>, <span class="kbd">закупок</span>, <span class="kbd">путеводитель</span>).</div>
+        </div>
+      </section>
+    `);
+
+    // tab clicks
+    $$('[data-tabv]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const vid = btn.dataset.tabv;
+        location.hash = `#/pkg/${pkgId}/${vid}`;
+      });
+    });
+
+    // block collapse
+    $$('[data-block]').forEach(block => {
+      const head = $('.block__head', block);
+      const body = $('.block__body', block);
+      head.addEventListener('click', () => {
+        const isHidden = body.style.display === 'none';
+        body.style.display = isHidden ? '' : 'none';
+        $('.kbd', head).textContent = isHidden ? '⌄' : '›';
+      });
+    });
+  }
+
+  function shortExplain(line){
+    const s = line.toLowerCase();
+    if(s.includes('российское законодательство')) return 'Основные нормативные акты (версия зависит от комплекта).';
+    if(s.includes('региональный выпуск')) return 'Региональные документы и практика по субъектам РФ (вариант зависит от пакета).';
+    if(s.includes('законопроекты')) return 'Проекты законов и инициативы — полезно для отслеживания изменений.';
+    if(s.includes('проекты нормативных')) return 'Проекты НПА до принятия — для анализа будущих требований.';
+    if(s.includes('правовые позиции')) return 'Позиции высших судов по ключевым вопросам применения норм.';
+    if(s.includes('решения высших судов')) return 'Акты высших судов (как ориентир для практики).';
+    if(s.includes('суд по интеллектуальным')) return 'Практика по интеллектуальным правам.';
+    if(s.includes('супермассив')) return 'Расширенный массив судебных решений/определений по инстанциям и регионам.';
+    if(s.includes('разъясняющие письма')) return 'Письма органов власти о применении норм на практике.';
+    if(s.includes('горячей линии')) return 'Подборки и консультации по типовым вопросам.';
+    if(s.includes('путеводитель')) return 'Практические материалы «как сделать» по типовым задачам.';
+    if(s.includes('вопросы-ответы')) return 'Короткие ответы на практические вопросы по теме.';
+    if(s.includes('корреспонденция счетов')) return 'Проводки и бухгалтерские ситуации.';
+    if(s.includes('пресса')) return 'Подборка профильных изданий, статей и материалов.';
+    if(s.includes('комментарии')) return 'Постатейные комментарии и книги по законодательству.';
+    if(s.includes('конструктор договор')) return 'Шаблоны и мастер составления договоров.';
+    if(s.includes('деловые бумаги')) return 'Формы документов и образцы оформления.';
+    if(s.includes('архив')) return 'Исторические массивы решений и документов.';
+    if(s.includes('эксперт-приложение')) return 'Специализированные материалы под отрасль/аудиторию.';
+    if(s.includes('медицина') || s.includes('фармацевтика')) return 'Отраслевые материалы по медицине и фарме.';
+    if(s.includes('отраслевые технические нормы')) return 'Нормы и требования отрасли (регламенты/стандарты).';
+    return 'Краткое описание можно уточнить и дополнить позже.';
   }
 
   function render(){
-    state.route = parseHash();
-    renderNav();
+    const route = parseRoute();
+    setActiveTab(route);
+    backBtn.style.opacity = canGoBack() ? '1' : '.35';
 
-    if(state.route.page === 'home') return renderHome();
-    if(state.route.page === 'glossary') return renderGlossary();
-    if(state.route.page === 'pkg') return renderPackage(state.route.pkgId, state.route.variantId);
-    return renderHome();
+    if(route.page === 'home') return renderHome();
+    if(route.page === 'search') return renderSearch();
+    if(route.page === 'focus') return renderFocus();
+    if(route.page === 'glossary') return renderGlossary();
+    if(route.page === 'pkg') return renderPkg(route.pkgId, route.variantId);
+
+    location.hash = '#/home';
   }
 
-  // events
   window.addEventListener('hashchange', render);
-
-  searchInput.addEventListener('input', (e)=>{
-    state.q = e.target.value || '';
-    applySearchFilter();
-  });
-
-  copyLinkBtn.addEventListener('click', async ()=>{
-    try{
-      await navigator.clipboard.writeText(location.href);
-      copyLinkBtn.textContent = 'Скопировано ✓';
-      setTimeout(()=>copyLinkBtn.textContent = 'Скопировать ссылку', 1200);
-    }catch(e){
-      alert('Не получилось скопировать (в некоторых webview это ограничено). Можно скопировать вручную из адресной строки.');
-    }
-  });
-
-  // initial
   render();
 })();
