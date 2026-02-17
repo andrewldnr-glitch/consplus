@@ -42,6 +42,9 @@
     }else if(route.page === 'focus'){
       titleTop.textContent = 'Фокус';
       titleSub.textContent = 'Базовый и Оптимальный';
+    }else if(route.page === 'quiz'){
+      titleTop.textContent = 'Тест';
+      titleSub.textContent = 'проверка знаний пакетов';
     }else if(route.page === 'glossary'){
       titleTop.textContent = 'Словарь';
       titleSub.textContent = 'краткие термины';
@@ -186,6 +189,10 @@
         <div class="p">${esc(meta.focus_note || '')}</div>
 
         <div class="callout">
+          <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px">
+            <a class="badge" href="#/quiz" style="text-decoration:none">Пройти тест</a>
+            <a class="badge" href="#/glossary" style="text-decoration:none">Открыть словарь</a>
+          </div>
           <div style="font-weight:900; margin-bottom:6px">Как пользоваться</div>
           <div class="p" style="margin:0">
             Выбирай направление → уровень комплекта → смотри состав по группам. Для быстрого поиска используй вкладку <span class="kbd">Поиск</span>.
@@ -210,7 +217,7 @@
     const pkg = getPkg(pkgId);
     if(!pkg) return;
     // Prefer base/optimal if exists
-    const preferred = ['base','nb_base','optimal','prof','expert'];
+    const preferred = ['base','optimal','prof','expert'];
     const v = preferred.map(id => getVariant(pkg,id)).find(Boolean) || pkg.variants?.[0];
     if(v) location.hash = `#/pkg/${pkgId}/${v.id}`;
   }
@@ -238,6 +245,277 @@
     });
   }
 
+
+  function renderQuiz(){
+    setHeader({page:'quiz'});
+    const allVariants = [];
+    for(const pkg of PKGS){
+      for(const v of (pkg.variants||[])){
+        allVariants.push({pkg, v});
+      }
+    }
+
+    function variantLabel(x){
+      const lvl = x.v.name.replace('Смарт-комплект ', '');
+      return `${x.pkg.name} — ${lvl}`;
+    }
+
+    function makeQuestions(n=10, focusOnly=false){
+      const pool = focusOnly
+        ? allVariants.filter(x => x.v.id === 'base' || x.v.id === 'optimal')
+        : allVariants.slice();
+
+      const itemMap = new Map();
+      for(const x of pool){
+        for(const it of (x.v.what_includes||[])){
+          const key = it.trim();
+          if(!itemMap.has(key)) itemMap.set(key, []);
+          itemMap.get(key).push(x);
+        }
+      }
+
+      const items = Array.from(itemMap.keys()).filter(k => k.length > 3);
+      for(let i=items.length-1;i>0;i--){
+        const j=Math.floor(Math.random()*(i+1));
+        [items[i],items[j]]=[items[j],items[i]];
+      }
+
+      const qs=[];
+      for(const it of items){
+        if(qs.length>=n) break;
+        const owners = itemMap.get(it) || [];
+        if(!owners.length) continue;
+        const correct = owners[Math.floor(Math.random()*owners.length)];
+
+        const opts = [correct];
+        while(opts.length<4 && pool.length>opts.length){
+          const cand = pool[Math.floor(Math.random()*pool.length)];
+          if(!opts.some(o => o.pkg.id===cand.pkg.id && o.v.id===cand.v.id)){
+            opts.push(cand);
+          }
+        }
+        for(let i=opts.length-1;i>0;i--){
+          const j=Math.floor(Math.random()*(i+1));
+          [opts[i],opts[j]]=[opts[j],opts[i]];
+        }
+        qs.push({
+          item: it,
+          correctId: `${correct.pkg.id}::${correct.v.id}`,
+          options: opts.map(o => ({ id:`${o.pkg.id}::${o.v.id}`, label: variantLabel(o) }))
+        });
+      }
+      return qs;
+    }
+
+    mount(`
+      <section class="page">
+        <div class="h1">Тест по пакетам</div>
+        <div class="p">Формат: выбираешь вариант — сразу видишь, правильно или нет. В конце — статистика.</div>
+
+        <div class="block" style="margin-top:10px">
+          <div class="block__head" style="cursor:default">
+            <div>
+              <div class="block__ttl">Настройки</div>
+              <div class="block__meta">Можно менять перед стартом</div>
+            </div>
+          </div>
+          <div class="block__body">
+            <div class="item">
+              <div class="dot"></div>
+              <div class="item__txt">
+                <div class="item__name">Количество вопросов</div>
+                <div class="item__desc">
+                  <select id="qCount" style="margin-top:8px; width:100%; padding:10px; border-radius:12px; border:1px solid rgba(255,255,255,.10); background:rgba(0,0,0,.18); color:rgba(243,248,255,.92)">
+                    <option>5</option><option selected>10</option><option>15</option><option>20</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="item">
+              <div class="dot"></div>
+              <div class="item__txt">
+                <div class="item__name">Режим</div>
+                <div class="item__desc" style="margin-top:8px">
+                  <label style="display:flex; gap:10px; align-items:center">
+                    <input type="checkbox" id="focusOnly" checked />
+                    <span>Только фокус (Базовый + Оптимальный)</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:12px">
+              <button class="iconbtn" id="startQuiz" style="width:100%; height:auto; padding:12px 14px; border-radius:18px">
+                <span style="font-weight:900">Начать тест</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div id="quizArea" style="margin-top:12px"></div>
+      </section>
+    `);
+
+    const area = $('#quizArea');
+    const startBtn = $('#startQuiz');
+    const qCountEl = $('#qCount');
+    const focusOnlyEl = $('#focusOnly');
+
+    let state = null;
+
+    function renderQuestion(){
+      const q = state.questions[state.idx];
+      const progress = `${state.idx+1} / ${state.questions.length}`;
+      area.innerHTML = `
+        <div class="card">
+          <div class="card__top">
+            <div>
+              <div class="card__title">В каком смарт‑комплекте есть:</div>
+              <div class="card__sub">${esc(q.item)}</div>
+            </div>
+            <div class="badges"><span class="badge">${progress}</span></div>
+          </div>
+
+          <div style="margin-top:12px; display:grid; gap:10px" id="opts"></div>
+
+          <div style="margin-top:12px; display:flex; gap:10px">
+            <button class="iconbtn" id="nextBtn" style="flex:1; height:auto; padding:12px 14px; border-radius:18px; opacity:.55" disabled>
+              <span style="font-weight:900">Дальше</span>
+            </button>
+            <button class="iconbtn" id="stopBtn" style="width:120px; height:auto; padding:12px 14px; border-radius:18px">
+              <span style="font-weight:900">Стоп</span>
+            </button>
+          </div>
+
+          <div id="fb" class="p" style="margin-top:10px"></div>
+        </div>
+      `;
+
+      const optsEl = $('#opts');
+      const fb = $('#fb');
+      const nextBtn = $('#nextBtn');
+
+      let locked = false;
+
+      q.options.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.className = 'iconbtn';
+        btn.style.width = '100%';
+        btn.style.height = 'auto';
+        btn.style.padding = '12px 14px';
+        btn.style.borderRadius = '18px';
+        btn.style.justifyContent = 'flex-start';
+        btn.style.textAlign = 'left';
+        btn.innerHTML = `<span style="font-weight:900">${esc(opt.label)}</span>`;
+        btn.addEventListener('click', () => {
+          if(locked) return;
+          locked = true;
+
+          const ok = opt.id === q.correctId;
+          if(ok){
+            state.correct++;
+            fb.textContent = '✓ Верно';
+          }else{
+            state.wrong++;
+            fb.textContent = '✗ Неверно';
+          }
+
+          Array.from(optsEl.children).forEach(child => {
+            const id = child.dataset.id;
+            if(id === q.correctId){
+              child.style.borderColor = 'rgba(34,197,94,.35)';
+              child.style.background = 'rgba(34,197,94,.10)';
+            }
+            if(id === opt.id && !ok){
+              child.style.borderColor = 'rgba(251,191,36,.30)';
+              child.style.background = 'rgba(251,191,36,.10)';
+            }
+            child.disabled = true;
+            child.style.cursor = 'default';
+          });
+
+          nextBtn.disabled = false;
+          nextBtn.style.opacity = '1';
+        });
+        btn.dataset.id = opt.id;
+        optsEl.appendChild(btn);
+      });
+
+      $('#stopBtn').addEventListener('click', () => renderResult());
+
+      nextBtn.addEventListener('click', () => {
+        if(state.idx < state.questions.length - 1){
+          state.idx++;
+          renderQuestion();
+        }else{
+          renderResult();
+        }
+      });
+    }
+
+    function renderResult(){
+      const total = state.questions.length || 1;
+      const ok = state.correct;
+      const bad = state.wrong;
+      const okPct = Math.round((ok/total)*100);
+      const badPct = 100 - okPct;
+
+      area.innerHTML = `
+        <div class="card">
+          <div class="h1" style="margin:0 0 6px 0">Результат</div>
+          <div class="p">Всего вопросов: <span class="kbd">${total}</span></div>
+
+          <div class="block" style="margin-top:10px">
+            <div class="block__body">
+              <div class="item" style="border-color: rgba(34,197,94,.18); background: rgba(34,197,94,.06)">
+                <div class="dot"></div>
+                <div class="item__txt">
+                  <div class="item__name">Верно</div>
+                  <div class="item__desc">${ok} (${okPct}%)</div>
+                </div>
+              </div>
+
+              <div class="item" style="border-color: rgba(251,191,36,.18); background: rgba(251,191,36,.06)">
+                <div class="dot"></div>
+                <div class="item__txt">
+                  <div class="item__name">Неверно</div>
+                  <div class="item__desc">${bad} (${badPct}%)</div>
+                </div>
+              </div>
+
+              <div style="margin-top:12px; display:flex; gap:10px">
+                <button class="iconbtn" id="again" style="flex:1; height:auto; padding:12px 14px; border-radius:18px">
+                  <span style="font-weight:900">Ещё раз</span>
+                </button>
+                <a class="iconbtn" href="#/focus" style="width:140px; height:auto; padding:12px 14px; border-radius:18px; text-decoration:none; display:flex; align-items:center; justify-content:center">
+                  <span style="font-weight:900">Фокус</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      $('#again').addEventListener('click', () => {
+        state = null;
+        start();
+      });
+    }
+
+    function start(){
+      const n = parseInt(qCountEl.value, 10) || 10;
+      const focusOnly = !!focusOnlyEl.checked;
+      const qs = makeQuestions(n, focusOnly);
+      state = {questions: qs, idx:0, correct:0, wrong:0};
+      if(!qs.length){
+        area.innerHTML = `<div class="p">Не удалось собрать вопросы (мало данных). Проверь списки «что входит» в базе.</div>`;
+        return;
+      }
+      renderQuestion();
+    }
+
+    startBtn.addEventListener('click', start);
+  }
   function renderGlossary(){
     setHeader({page:'glossary'});
     const items = (CONTENT.glossary || []).map(x => `
@@ -471,6 +749,7 @@
     if(route.page === 'home') return renderHome();
     if(route.page === 'search') return renderSearch();
     if(route.page === 'focus') return renderFocus();
+    if(route.page === 'quiz') return renderQuiz();
     if(route.page === 'glossary') return renderGlossary();
     if(route.page === 'pkg') return renderPkg(route.pkgId, route.variantId);
 
