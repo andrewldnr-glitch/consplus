@@ -89,15 +89,22 @@
     toastTimer = setTimeout(()=> elToast.classList.remove('toast--show'), 1800);
   };
 
-  // ---------- Routing ----------
-  const parseRoute = () => {
-    const raw = (location.hash || '#/').slice(1);
-    const [pathRaw, qsRaw] = raw.split('?');
-    const path = '/' + (pathRaw || '').replace(/^\/+/,'').replace(/\/+$/,'');
-    const parts = path.split('/').filter(Boolean);
-    const query = new URLSearchParams(qsRaw || '');
-    return { path, parts, query, raw };
-  };
+ const parseRoute = () => {
+  // force splash if empty hash
+  if (!location.hash || location.hash === '#' || location.hash === '') {
+    return { path: '/splash', parts: [], query: new URLSearchParams(), raw: '/splash' };
+  }
+
+  const raw = location.hash.slice(1);
+  const [pathRaw, qsRaw] = raw.split('?');
+
+  const clean = (pathRaw || '').replace(/^\/+/, '').replace(/\/+$/, '');
+  const path = '/' + clean;
+  const parts = clean ? clean.split('/') : [];
+  const query = new URLSearchParams(qsRaw || '');
+
+  return { path, parts, query, raw };
+};
 
   const navTo = (hash) => {
     if(location.hash === hash) return;
@@ -386,27 +393,14 @@
       </div>
     `;
 
-    // Robust auto-redirect logic (GitHub Pages + empty hash safe)
+   // splash redirects once after mount
 setTimeout(() => {
-  const r = parseRoute();
-
-  const isEmpty = !location.hash || location.hash === '#' || r.path === '/' || !r.path;
-  const isSplash = r.path === '/splash';
-
-  // Allow redirect if:
-  // 1) hash is empty (fresh open)
-  // 2) route is "/"
-  // 3) route is explicitly "/splash"
-  if (isEmpty || isSplash) {
-    if (state.onboarded) {
-      navTo(state.lastRoute || '#/home');
-    } else {
-      navTo('#/onboarding');
-    }
+  if (state.onboarded) {
+    navTo(state.lastRoute || '#/home');
+  } else {
+    navTo('#/onboarding');
   }
-
-  // If user deep-linked (e.g. #/package/...), do nothing
-}, 700);
+}, 600);
 
   const screenOnboarding = () => {
     setTopbar({ title: 'Onboarding', subtitle: 'Настрой Learn под себя', backHref:'#/splash', right:'' });
@@ -1702,10 +1696,10 @@ setTimeout(() => {
 
   window.addEventListener('hashchange', render);
 
-  // init
-  if(!location.hash){
-    navTo('#/splash');
-  }else{
-    render();
-  }
+// Force splash on first load
+if (!location.hash || location.hash === '#') {
+  location.hash = '#/splash';
+}
+
+render();
 })();
