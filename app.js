@@ -1689,10 +1689,13 @@
 
   window.addEventListener('hashchange', render);
 
-  // init
-  if(!location.hash){
-    navTo('#/splash');
-  }else{
-    render();
-  }
+// init (Telegram WebView safe)
+if (!location.hash || location.hash === '#') {
+  // ставим splash, а render произойдёт на hashchange
+  location.hash = '#/splash';
+} else {
+  // если уже есть deep link — рисуем сразу
+  render();
+}
+
 })();
