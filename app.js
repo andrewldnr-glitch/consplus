@@ -386,14 +386,27 @@
       </div>
     `;
 
-    // Auto-redirect only if user is on splash (not deep link)
-    setTimeout(() => {
-      const r = parseRoute();
-      if(r.path !== '/splash') return;
-      if(state.onboarded) navTo(state.lastRoute || '#/home');
-      else navTo('#/onboarding');
-    }, 700);
-  };
+    // Robust auto-redirect logic (GitHub Pages + empty hash safe)
+setTimeout(() => {
+  const r = parseRoute();
+
+  const isEmpty = !location.hash || location.hash === '#' || r.path === '/' || !r.path;
+  const isSplash = r.path === '/splash';
+
+  // Allow redirect if:
+  // 1) hash is empty (fresh open)
+  // 2) route is "/"
+  // 3) route is explicitly "/splash"
+  if (isEmpty || isSplash) {
+    if (state.onboarded) {
+      navTo(state.lastRoute || '#/home');
+    } else {
+      navTo('#/onboarding');
+    }
+  }
+
+  // If user deep-linked (e.g. #/package/...), do nothing
+}, 700);
 
   const screenOnboarding = () => {
     setTopbar({ title: 'Onboarding', subtitle: 'Настрой Learn под себя', backHref:'#/splash', right:'' });
